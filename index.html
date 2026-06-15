@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<title>Dynamic Maze Size & Stop Customizer - Braided Maze Solver</title>
+	<style>
+		body {
+			margin: 0;
+			background-color: #0b0c10;
+			color: #c5c6c7;
+			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh;
+			overflow: hidden;
+			user-select: none;
+		}
+		h1 {
+			margin: 5px 0 2px 0;
+			font-size: 1.4rem;
+			color: #00ffcc;
+		}
+		p {
+			margin: 0 0 10px 0;
+			font-size: 0.85rem;
+			color: #a2adb8;
+		}
+		.main-container {
+			display: flex;
+			gap: 20px;
+			align-items: flex-start;
+		}
+		#canvasContainer {
+			position: relative;
+			box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 255, 204, 0.1);
+			border-radius: 24px;
+			background: #1f2833;
+			padding: 15px;
+			touch-action: none;
+		}
+		canvas {
+			display: block;
+			background: #040508;
+			border-radius: 16px;
+			cursor: grab;
+		}
+		canvas:active {
+			cursor: grabbing;
+		}
+		.side-panel {
+			background: #1f2833;
+			width: 260px;
+			height: 470px;
+			border-radius: 24px;
+			padding: 20px;
+			box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+			display: flex;
+			flex-direction: column;
+			justify-content: space-between;
+		}
+		.side-panel h3 {
+			margin: 0 0 10px 0;
+			color: #00ffcc;
+			font-size: 1.1rem;
+			border-bottom: 1px solid rgba(0, 255, 204, 0.3);
+			padding-bottom: 5px;
+		}
+		.telemetry-box {
+			font-family: monospace;
+			font-size: 0.8rem;
+			color: #66fcf1;
+			background: rgba(0,0,0,0.3);
+			padding: 12px;
+			border-radius: 8px;
+			line-height: 1.4;
+			height: 140px;
+			overflow-y: auto;
+			margin-bottom: 10px;
+		}
+		.control-group {
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+		}
+		.slider-wrap {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+			font-size: 0.8rem;
+			color: #c5c6c7;
+		}
+		.slider-label-row {
+			display: flex;
+			justify-content: space-between;
+			font-weight: bold;
+		}
+		.slider-label-row span {
+			color: #00ffcc;
+		}
+		input[type="range"] {
+			-webkit-appearance: none;
+			width: 100%;
+			background: #0b0c10;
+			height: 6px;
+			border-radius: 3px;
+			outline: none;
+		}
+		input[type="range"]::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			width: 14px;
+			height: 14px;
+			border-radius: 50%;
+			background: #00ffcc;
+			cursor: pointer;
+			box-shadow: 0 0 8px rgba(0, 255, 204, 0.5);
+		}
+		button {
+			background: #00ffcc;
+			color: #090b10;
+			border: none;
+			padding: 10px;
+			border-radius: 8px;
+			font-weight: bold;
+			cursor: pointer;
+			font-size: 0.85rem;
+			transition: all 0.2s ease;
+			box-shadow: 0 4px 10px rgba(0, 255, 204, 0.1);
+			width: 100%;
+		}
+		button:hover {
+			background: #00ccaa;
+			transform: translateY(-1px);
+		}
+	</style>
+</head>
+<body>
+
+	<h1>Customizable Braided Maze Engine</h1>
+	<p>Adjust maze dimensions and the total target delivery pins independently in real-time.</p>
+
+	<div class="main-container">
+		<div id="canvasContainer">
+			<canvas id="simCanvas" width="500" height="500"></canvas>
+		</div>
+
+		<div class="side-panel">
+			<div>
+				<h3>Macro Network Info</h3>
+				<div class="telemetry-box" id="telemetry">
+					Re-mapping matrix layout...
+				</div>
+			</div>
+
+			<div class="control-group">
+				<div class="slider-wrap">
+					<div class="slider-label-row">
+						<label for="sizeSlider">Grid Size (Square):</label>
+						<span id="sizeValue">25 x 25</span>
+					</div>
+					<input type="range" id="sizeSlider" min="11" max="35" step="2" value="25">
+				</div>
+
+				<div class="slider-wrap">
+					<div class="slider-label-row">
+						<label for="stopsSlider">Target Stops Count:</label>
+						<span id="stopsValue">6 Stops</span>
+					</div>
+					<input type="range" id="stopsSlider" min="2" max="10" step="1" value="6">
+				</div>
+
+				<button id="btnRandomize">Generate New Maze</button>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		const canvas = document.getElementById('simCanvas');
+		const ctx = canvas.getContext('2d');
+
+		let rotationAngles = { x: 0.14, y: -0.14, z: 0 };
+		const PARTICLE_COUNT = 1500;
+		let particles = [];
+
+		// Interactive Zoom Settings
+		let globalScaleFactor = 1.0;
+		const MIN_SCALE = 0.4;
+		const MAX_SCALE = 2.5;
+		let initialTouchDistance = null;
+
+		// Dynamic Settings Controllers
+		let GRID_SIZE = 25; 
+		let TOTAL_STOPS = 6;
+		const MAX_CANVAS_RENDER_BOUNDS = 425; 
+		let BASE_CELL_SIZE = MAX_CANVAS_RENDER_BOUNDS / GRID_SIZE;
+		
+		let currentCellSize = BASE_CELL_SIZE;
+		let mazeDim = GRID_SIZE * currentCellSize;
+		let halfMaze = mazeDim / 2;
+
+		let mazeGrid = [];
+		let tspPoints = [];
+		let optimalCircuitPaths = [];
+
+		const nodeLabels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+		const nodeColors = [
+			"#ff3f45", "#1dd1a1", "#00bfff", "#feca57", "#ff9ff3", 
+			"#ff9f43", "#10ac84", "#5f27cd", "#0abde3", "#ee5253"
+		];
+
+		// --- PROCEDURAL GENERATOR WITH HIGH-DENSITY ROAD BRAIDING ---
+		function generateProceduralHugeMaze() {
+			mazeGrid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(1));
+
+			let stack = [];
+			let start = { r: 1, c: 1 };
+			mazeGrid[start.r][start.c] = 0;
+			stack.push(start);
+
+			while (stack.length > 0) {
+				let current = stack[stack.length - 1];
+				let neighbors = [];
+
+				let directions = [
+					{ dr: -2, dc: 0 }, { dr: 2, dc: 0 },
+					{ dr: 0, dc: -2 }, { dr: 0, dc: 2 }
+				];
+
+				directions.forEach(d => {
+					let nr = current.r + d.dr;
+					let nc = current.c + d.dc;
+					if (nr > 0 && nr < GRID_SIZE - 1 && nc > 0 && nc < GRID_SIZE - 1) {
+						if (mazeGrid[nr][nc] === 1) {
+							neighbors.push({ r: nr, c: nc, wallR: current.r + d.dr/2, wallC: current.c + d.dc/2 });
+						}
+					}
+				});
+
+				if (neighbors.length > 0) {
+					let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+					mazeGrid[next.wallR][next.wallC] = 0;
+					mazeGrid[next.r][next.c] = 0;
+					stack.push({ r: next.r, c: next.c });
+				} else {
+					stack.pop();
+				}
+			}
+
+			// Braiding Loops System
+			for (let r = 2; r < GRID_SIZE - 2; r++) {
+				for (let c = 2; c < GRID_SIZE - 2; c++) {
+					if (mazeGrid[r][c] === 1 && Math.random() < 0.25) {
+						let horizontalSpace = (mazeGrid[r][c-1] === 0 && mazeGrid[r][c+1] === 0);
+						let verticalSpace = (mazeGrid[r-1][c] === 0 && mazeGrid[r+1][c] === 0);
+						if (horizontalSpace || verticalSpace) {
+							mazeGrid[r][c] = 0; 
+						}
+					}
+				}
+			}
+
+			updateScalesAndNodes();
+		}
+
+		// --- UPDATE GEOMETRY COORDS ON VALUES MODIFIED ---
+		function updateScalesAndNodes() {
+			BASE_CELL_SIZE = MAX_CANVAS_RENDER_BOUNDS / GRID_SIZE;
+			currentCellSize = BASE_CELL_SIZE * globalScaleFactor;
+			mazeDim = GRID_SIZE * currentCellSize;
+			halfMaze = mazeDim / 2;
+
+			if (tspPoints.length === 0) {
+				let openFloorTiles = [];
+				for (let r = 1; r < GRID_SIZE - 1; r++) {
+					for (let c = 1; c < GRID_SIZE - 1; c++) {
+						if (mazeGrid[r][c] === 0) openFloorTiles.push({ r, c });
+					}
+				}
+				openFloorTiles.sort(() => Math.random() - 0.5);
+
+				// Dynamically fetch based on target slider parameter array sizes
+				let safetyCapStops = Math.min(TOTAL_STOPS, openFloorTiles.length);
+				for (let i = 0; i < safetyCapStops; i++) {
+					let tile = openFloorTiles[i];
+					tspPoints.push({
+						id: i,
+						r: tile.r,
+						c: tile.c,
+						label: nodeLabels[i],
+						color: nodeColors[i]
+					});
+				}
+				runHugeMazeTSPSolver();
+			}
+
+			tspPoints.forEach(pt => {
+				pt.x = (pt.c * currentCellSize) - halfMaze + currentCellSize / 2;
+				pt.y = (pt.r * currentCellSize) - halfMaze + currentCellSize / 2;
+			});
+		}
+
+		// --- BFS ROUTER TRACKER ---
+		function findBfsPath(start, end) {
+			let queue = [[start.r, start.c, []]];
+			let visited = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(false));
+			visited[start.r][start.c] = true;
+
+			while (queue.length > 0) {
+				let [r, c, path] = queue.shift();
+				let currentPath = [...path, { r, c }];
+
+				if (r === end.r && c === end.c) return currentPath;
+
+				let dirs = [[-1,0], [1,0], [0,-1], [0,1]];
+				for (let [dr, dc] of dirs) {
+					let nr = r + dr, nc = c + dc;
+					if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+						if (mazeGrid[nr][nc] === 0 && !visited[nr][nc]) {
+							visited[nr][nc] = true;
+							queue.push([nr, nc, currentPath]);
+						}
+					}
+				}
+			}
+			return [];
+		}
+
+		// --- EXPANDED MATRICES COMBINATORIAL ROUTE TREE SOLVER ---
+		function runHugeMazeTSPSolver() {
+			let n = tspPoints.length;
+			if (n === 0) return;
+
+			let distanceMatrix = Array(n).fill().map(() => Array(n).fill(0));
+			let pathSegmentsLookup = {};
+
+			for (let i = 0; i < n; i++) {
+				for (let j = i + 1; j < n; j++) {
+					let path = findBfsPath(tspPoints[i], tspPoints[j]);
+					let cost = path.length;
+					distanceMatrix[i][j] = cost;
+					distanceMatrix[j][i] = cost;
+					pathSegmentsLookup[`${i}-${j}`] = path;
+					pathSegmentsLookup[`${j}-${i}`] = [...path].reverse();
+				}
+			}
+
+			let lowestCost = Infinity;
+			let targetSequence = [];
+
+			// Combinatorial permutation engine handler
+			function permutate(arr, memo = []) {
+				if (arr.length === 0) {
+					let cost = 0;
+					for (let i = 0; i < memo.length - 1; i++) {
+						cost += distanceMatrix[memo[i].id][memo[i+1].id];
+					}
+					if(memo.length > 1) {
+						cost += distanceMatrix[memo[memo.length-1].id][memo[0].id];
+					}
+
+					if (cost < lowestCost) {
+						lowestCost = cost;
+						targetSequence = memo;
+					}
+					return;
+				}
+				for (let i = 0; i < arr.length; i++) {
+					let curr = arr.slice();
+					let next = curr.splice(i, 1);
+					permutate(curr, memo.concat(next));
+				}
+			}
+
+			permutate(tspPoints);
+			let fullLoopSequence = [...targetSequence, targetSequence[0]];
+
+			optimalCircuitPaths = [];
+			for (let i = 0; i < fullLoopSequence.length - 1; i++) {
+				let id1 = fullLoopSequence[i].id;
+				let id2 = fullLoopSequence[i+1].id;
+				let segmentTiles = pathSegmentsLookup[`${id1}-${id2}`] || [];
+				optimalCircuitPaths.push(...segmentTiles);
+			}
+
+			let logHTML = `<b>Optimal Circuit Loop:</b><br><span style="color:#00ffcc">`;
+			fullLoopSequence.forEach((node, idx) => {
+				if(node) logHTML += node.label + (idx < fullLoopSequence.length - 1 ? " → " : "");
+			});
+			logHTML += `</span><br><br><b>Path Link Cost:</b><br>${lowestCost} Blocks Traveled<br><br><b>Map Configuration:</b><br><span id="zoomLabel">Zoom 100%</span>`;
+			document.getElementById('telemetry').innerHTML = logHTML;
+		}
+
+		// --- MOUSE WHEEL & PINCH ZOOM HARNESS ARRAYS ---
+		canvas.addEventListener('wheel', (e) => {
+			e.preventDefault();
+			let zoomIntensity = 0.05;
+			if (e.deltaY < 0) {
+				globalScaleFactor = Math.min(MAX_SCALE, globalScaleFactor + zoomIntensity);
+			} else {
+				globalScaleFactor = Math.max(MIN_SCALE, globalScaleFactor - zoomIntensity);
+			}
+			applyZoomMetrics();
+		}, { passive: false });
+
+		canvas.addEventListener('touchstart', (e) => {
+			if (e.touches.length === 2) {
+				initialTouchDistance = Math.hypot(
+					e.touches[0].pageX - e.touches[1].pageX,
+					e.touches[0].pageY - e.touches[1].pageY
+				);
+			}
+		}, { passive: true });
+
+		canvas.addEventListener('touchmove', (e) => {
+			if (e.touches.length === 2 && initialTouchDistance !== null) {
+				let currentDistance = Math.hypot(
+					e.touches[0].pageX - e.touches[1].pageX,
+					e.touches[0].pageY - e.touches[1].pageY
+				);
+				let delta = currentDistance / initialTouchDistance;
+				if (delta > 1.02) {
+					globalScaleFactor = Math.min(MAX_SCALE, globalScaleFactor + 0.03);
+				} else if (delta < 0.98) {
+					globalScaleFactor = Math.max(MIN_SCALE, globalScaleFactor - 0.03);
+				}
+				initialTouchDistance = currentDistance;
+				applyZoomMetrics();
+			}
+		}, { passive: true });
+
+		canvas.addEventListener('touchend', () => {
+			initialTouchDistance = null;
+		}, { passive: true });
+
+		function applyZoomMetrics() {
+			let previousHalfMaze = halfMaze;
+			updateScalesAndNodes();
+			
+			let proportionalAdjustment = halfMaze / previousHalfMaze;
+			particles.forEach(p => {
+				p.x *= proportionalAdjustment;
+				p.y *= proportionalAdjustment;
+				p.vx *= proportionalAdjustment;
+				p.vy *= proportionalAdjustment;
+			});
+
+			document.getElementById('zoomLabel').innerText = `Zoom ${Math.round(globalScaleFactor * 100)}%`;
+		}
+
+		// --- INTERACTIVE SLIDERS ASSIGNMENTS EVENT LISTENERS ---
+		const sizeSlider = document.getElementById('sizeSlider');
+		const sizeValue = document.getElementById('sizeValue');
+		const stopsSlider = document.getElementById('stopsSlider');
+		const stopsValue = document.getElementById('stopsValue');
+
+		sizeSlider.addEventListener('input', (e) => {
+			GRID_SIZE = parseInt(e.target.value);
+			sizeValue.innerText = `${GRID_SIZE} x ${GRID_SIZE}`;
+			triggerRandomMegaReset();
+		});
+
+		stopsSlider.addEventListener('input', (e) => {
+			TOTAL_STOPS = parseInt(e.target.value);
+			stopsValue.innerText = `${TOTAL_STOPS} Stops`;
+			triggerRandomMegaReset();
+		});
+
+		document.getElementById('btnRandomize').addEventListener('click', triggerRandomMegaReset);
+
+		// --- 3D PROJECTION METRICS ---
+		function project3D(x, y, z, ax, ay, az) {
+			let x1 = x;
+			let y1 = y * Math.cos(ax) - z * Math.sin(ax);
+			let z1 = y * Math.sin(ax) + z * Math.cos(ax);
+
+			let x2 = x1 * Math.cos(ay) + z1 * Math.sin(ay);
+			let y2 = y1;
+			let z2 = -x1 * Math.sin(ay) + z1 * Math.cos(ay);
+
+			let x3 = x2 * Math.cos(az) - y2 * Math.sin(az);
+			let y3 = x2 * Math.sin(az) + y2 * Math.cos(az);
+			let z3 = z2;
+
+			return { x: x3, y: y3, z: z3 };
+		}
+
+		// --- ADAPTIVE FLUID CORE CLASS ---
+		class AdaptiveFluidParticle {
+			constructor() {
+				this.reset();
+			}
+			reset() {
+				let randomSpawn = tspPoints[Math.floor(Math.random() * tspPoints.length)];
+				this.x = randomSpawn ? randomSpawn.x : 0;
+				this.y = randomSpawn ? randomSpawn.y : 0;
+				this.vx = 0;
+				this.vy = 0;
+			}
+
+			update() {
+				this.vx += Math.sin(rotationAngles.y) * (0.35 * globalScaleFactor);
+				this.vy += -Math.sin(rotationAngles.x) * (0.35 * globalScaleFactor);
+
+				this.vx += (Math.random() - 0.5) * 0.08;
+				this.vy += (Math.random() - 0.5) * 0.08;
+
+				let nextX = this.x + this.vx;
+				let nextY = this.y + this.vy;
+				
+				let bufferOffset = Math.max(1, currentCellSize * 0.15); 
+
+				let tileCheckX = Math.floor((nextX + Math.sign(this.vx) * bufferOffset + halfMaze) / currentCellSize);
+				let currentTileY = Math.floor((this.y + halfMaze) / currentCellSize);
+				
+				if (tileCheckX >= 0 && tileCheckX < GRID_SIZE && currentTileY >= 0 && currentTileY < GRID_SIZE && mazeGrid[currentTileY][tileCheckX] === 0) {
+					this.x = nextX;
+				} else {
+					this.vx *= -0.12;
+				}
+
+				let currentTileX = Math.floor((this.x + halfMaze) / currentCellSize);
+				let tileCheckY = Math.floor((nextY + Math.sign(this.vy) * bufferOffset + halfMaze) / currentCellSize);
+
+				if (currentTileX >= 0 && currentTileX < GRID_SIZE && tileCheckY >= 0 && tileCheckY < GRID_SIZE && mazeGrid[tileCheckY][currentTileX] === 0) {
+					this.y = nextY;
+				} else {
+					this.vy *= -0.12;
+				}
+
+				this.vx *= 0.95;
+				this.vy *= 0.95;
+			}
+		}
+
+		function triggerRandomMegaReset() {
+			tspPoints = [];
+			generateProceduralHugeMaze();
+			particles = [];
+			for (let i = 0; i < PARTICLE_COUNT; i++) {
+				particles.push(new AdaptiveFluidParticle());
+			}
+			document.getElementById('zoomLabel').innerText = `Zoom ${Math.round(globalScaleFactor * 100)}%`;
+		}
+
+		function step() {
+			let time = Date.now() * 0.0004;
+			rotationAngles.x = Math.sin(time) * 0.16;
+			rotationAngles.y = Math.cos(time * 0.75) * 0.16;
+			rotationAngles.z = time * 0.03;
+
+			particles.forEach(p => p.update());
+		}
+
+		function render() {
+			ctx.fillStyle = '#040508';
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+			const cx = canvas.width / 2;
+			const cy = canvas.height / 2;
+			const camDist = 550;
+
+			let renderQueue = [];
+
+			// 1. Render Maze Walls
+			for (let r = 0; r < GRID_SIZE; r++) {
+				for (let c = 0; c < GRID_SIZE; c++) {
+					let tileX = (c * currentCellSize) - halfMaze;
+					let tileY = (r * currentCellSize) - halfMaze;
+
+					let corners = [
+						project3D(tileX, tileY, 0, rotationAngles.x, rotationAngles.y, rotationAngles.z),
+						project3D(tileX + currentCellSize, tileY, 0, rotationAngles.x, rotationAngles.y, rotationAngles.z),
+						project3D(tileX + currentCellSize, tileY + currentCellSize, 0, rotationAngles.x, rotationAngles.y, rotationAngles.z),
+						project3D(tileX, tileY + currentCellSize, 0, rotationAngles.x, rotationAngles.y, rotationAngles.z)
+					];
+
+					let avgZ = corners.reduce((sum, p) => sum + p.z, 0) / 4;
+					let isWall = mazeGrid[r][c] === 1;
+
+					renderQueue.push({
+						z: avgZ + (isWall ? 4 : 12),
+						draw: () => {
+							ctx.beginPath();
+							corners.forEach((pt, i) => {
+								let s = camDist / (camDist + pt.z);
+								if (i === 0) ctx.moveTo(cx + pt.x * s, cy + pt.y * s);
+								else ctx.lineTo(cx + pt.x * s, cy + pt.y * s);
+							});
+							ctx.closePath();
+							if (isWall) {
+								ctx.fillStyle = 'rgba(26, 36, 48, 0.9)';
+								ctx.fill();
+							} else {
+								ctx.fillStyle = '#070a0f';
+								ctx.fill();
+							}
+						}
+					});
+				}
+			}
+
+			// 2. Render Solved Overlay Trails
+			for (let i = 0; i < optimalCircuitPaths.length - 1; i++) {
+				let t1 = optimalCircuitPaths[i];
+				let t2 = optimalCircuitPaths[i+1];
+
+				let x1 = (t1.c * currentCellSize) - halfMaze + currentCellSize / 2;
+				let y1 = (t1.r * currentCellSize) - halfMaze + currentCellSize / 2;
+				let x2 = (t2.c * currentCellSize) - halfMaze + currentCellSize / 2;
+				let y2 = (t2.r * currentCellSize) - halfMaze + currentCellSize / 2;
+
+				let pt1 = project3D(x1, y1, -1.5, rotationAngles.x, rotationAngles.y, rotationAngles.z);
+				let pt2 = project3D(x2, y2, -1.5, rotationAngles.x, rotationAngles.y, rotationAngles.z);
+
+				renderQueue.push({
+					z: (pt1.z + pt2.z) / 2 - 1,
+					draw: () => {
+						ctx.beginPath();
+						let s1 = camDist / (camDist + pt1.z);
+						let s2 = camDist / (camDist + pt2.z);
+						ctx.moveTo(cx + pt1.x * s1, cy + pt1.y * s1);
+						ctx.lineTo(cx + pt2.x * s2, cy + pt2.y * s2);
+						ctx.strokeStyle = '#00ffcc';
+						ctx.lineWidth = Math.max(1, 1.8 * ((s1 + s2) / 2) * globalScaleFactor);
+						ctx.stroke();
+					}
+				});
+			}
+
+			// 3. Render Micro Fluid Drop Components
+			let particleRadius = Math.max(0.8, (currentCellSize * 0.1) * globalScaleFactor);
+			particles.forEach(p => {
+				let rot = project3D(p.x, p.y, -2.5, rotationAngles.x, rotationAngles.y, rotationAngles.z);
+				let s = camDist / (camDist + rot.z);
+
+				renderQueue.push({
+					z: rot.z - 2,
+					draw: () => {
+						ctx.beginPath();
+						ctx.arc(cx + rot.x * s, cy + rot.y * s, particleRadius * s, 0, Math.PI * 2); 
+						ctx.fillStyle = `rgba(0, 150, 255, ${Math.min(0.65, s * 0.55)})`;
+						ctx.fill();
+					}
+				});
+			});
+
+			// 4. Render Target Destination Node Interfaces
+			let pinRadius = Math.max(4.5, (currentCellSize * 0.45) * globalScaleFactor);
+			tspPoints.forEach(pt => {
+				let rot = project3D(pt.x, pt.y, -3.5, rotationAngles.x, rotationAngles.y, rotationAngles.z);
+				let s = camDist / (camDist + rot.z);
+
+				renderQueue.push({
+					z: rot.z - 4,
+					draw: () => {
+						let px = cx + rot.x * s;
+						let py = cy + rot.y * s;
+						let rScaled = pinRadius * s;
+						
+						ctx.beginPath();
+						ctx.arc(px, py, rScaled, 0, Math.PI * 2);
+						ctx.fillStyle = pt.color;
+						ctx.fill();
+
+						ctx.fillStyle = "#000000";
+						ctx.font = `bold ${Math.round(rScaled * 1.1)}px sans-serif`;
+						ctx.textAlign = "center";
+						ctx.textBaseline = "middle";
+						ctx.fillText(pt.label, px, py);
+					}
+				});
+			});
+
+			renderQueue.sort((a, b) => b.z - a.z);
+			renderQueue.forEach(item => item.draw());
+		}
+
+		function frame() {
+			step();
+			render();
+			requestAnimationFrame(frame);
+		}
+
+		triggerRandomMegaReset();
+		frame();
+	</script>
+</body>
+</html>
